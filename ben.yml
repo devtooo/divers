@@ -1,0 +1,16 @@
+root.scenario_id = this.scenario.id
+root.scenario_date = this.scenario.date.ts_parse("2006-01-02T15:04:05-07:00").ts_format("20060102")
+root.postes = this.postes.map_each(post -> {
+  "post_id": post.id,
+  "gos": (
+    post.gos.map_each(gos -> gos.ids1.map_each(id -> {
+      "id": id,
+      "dynamic_subject": "event." +root. scenario_date + "." + root.scenario_id + "." + id
+    })).concat(
+            post.gos.map_each(gos -> gos.ids2.map_each(id -> {
+      "id": id,
+      "dynamic_subject": "event." +root. scenario_date + "." + root.scenario_id + "." + id
+    }))
+        )
+  )
+})
