@@ -11,6 +11,14 @@ pipeline:
         this.each((value, key) -> {
           root = root.set(key, value)
         })
+processors:
+  - mapping: |
+      root = {}
+      meta header_keys = @header
+      meta header_keys.each(key -> {
+        let value = this[key]
+        root = root.set(key, value)
+      })        
 
 output:
   file:
