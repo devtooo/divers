@@ -4,140 +4,118 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 )
 
-// SetNestedValue sets a value in a nested map or list based on a JSON path with slashes
-func SetNestedValue(jsonObject map[string]interface{}, path string, value string) {
-	// Remove the leading "/" if present
-	if strings.HasPrefix(path, "/") {
-		path = strings.TrimPrefix(path, "/")
-	}
-
-	// Split the path by "/"
-	keys := strings.Split(path, "/")
-
-	// Traverse or create the map/list structure based on keys
-	var current interface{} = jsonObject
-	for i, key := range keys {
-		// Check if the key represents an index (for a list)
-		index, err := strconv.Atoi(key)
-		isIndex := err == nil
-
-		// If this is the last key, set the value
-		if i == len(keys)-1 {
-			if isIndex {
-				// Handle list at the last level
-				currentMap, ok := current.(map[string]interface{})
-				if !ok {
-					log.Fatalf("Expected map at final level, found: %T", current)
-				}
-				parentKey := keys[i-1]
-				currentList := ensureList(currentMap, parentKey, index)
-				currentList[index] = value
-			} else {
-				currentMap, ok := current.(map[string]interface{})
-				if !ok {
-					log.Fatalf("Expected map at final level, found: %T", current)
-				}
-				currentMap[key] = value
-			}
-			return
-		}
-
-		if isIndex {
-			// Handle intermediate list
-			currentMap, ok := current.(map[string]interface{})
-			if !ok {
-				log.Fatalf("Expected map at intermediate level, found: %T", current)
-			}
-			parentKey := keys[i-1]
-			currentList := ensureList(currentMap, parentKey, index)
-			if currentList[index] == nil {
-				currentList[index] = make(map[string]interface{})
-			}
-			current = currentList[index]
-		} else {
-			// Handle intermediate map
-			currentMap, ok := current.(map[string]interface{})
-			if !ok {
-				log.Fatalf("Expected map at intermediate level, found: %T", current)
-			}
-			if _, exists := currentMap[key]; !exists {
-				currentMap[key] = make(map[string]interface{})
-			}
-			current = currentMap[key]
-		}
-	}
-}
-
-// ensureList ensures that a key in the parent map is a list and has at least `size` elements.
-func ensureList(parent map[string]interface{}, key string, size int) []interface{} {
-	// Check if the key exists and is already a list
-	if _, exists := parent[key]; !exists {
-		parent[key] = make([]interface{}, size+1)
-	}
-
-	// Convert to list if valid
-	list, ok := parent[key].([]interface{})
-	if !ok {
-		log.Fatalf("Expected a list at key '%s' but found: %T", key, parent[key])
-	}
-
-	// Expand the list if necessary
-	if len(list) <= size {
-		newList := make([]interface{}, size+1)
-		copy(newList, list)
-		parent[key] = newList
-	}
-
-	return parent[key].([]interface{})
-}
-
 func main() {
 	// Open the CSV file
-	file, err := os.Open("data.csv")
+	f, err := os.Open("data.csv")
 	if err != nil {
-		log.Fatalf("Failed to open file: %v", err)
+		panic(err)
 	}
-	defer file.Close()
+	defer f.Close()
 
-	// Read the CSV file
-	reader := csv.NewReader(file)
-	headers, err := reader.Read()
+	// Create a new CSV reader
+	reader := csv.NewReader(f)
+
+	// Read the header
+	header, err := reader.Read()
 	if err != nil {
-		log.Fatalf("Failed to read headers: %v", err)
+		panic(err)
 	}
 
-	var jsonArray []map[string]interface{}
-
-	// Process each row
+	// Read all records
+	var records [][]string
 	for {
 		record, err := reader.Read()
-		if err != nil {
+		if err == io.EOF {
 			break
 		}
-
-		// Create a new JSON object for each row
-		jsonObject := make(map[string]interface{})
-
-		for i, header := range headers {
-			SetNestedValue(jsonObject, header, record[i])
+		if err != nil {
+			panic(err)
 		}
-
-		// Append JSON object to array
-		jsonArray = append(jsonArray, jsonObject)
+		records = append(records, record)
 	}
 
-	// Convert array of JSON objects to a single JSON
-	finalJSON, err := json.MarshalIndent(jsonArray, "", "  ")
+	// Process each record and build JSON objects
+	var output []map[string]interface{}
+	for _, record := range records {
+		obj := make(map[string]interface{})
+		for i, value := range record {
+			pathStr := header[i]
+			path := strings.Split(pathStr, "/")
+			// Remove empty strings from path parts
+			var pathParts []string
+			for _, part := range path {
+				if part != "" {
+					pathParts = append(pathParts, part)
+				}
+			}
+			setValue(obj, pathParts, value)
+		}
+		output = append(output, obj)
+	}
+
+	// Convert the output to JSON
+	jsonBytes, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
-		log.Fatalf("Failed to marshal final JSON: %v", err)
+		panic(err)
 	}
 
-	// Output the final JSON
-	fmt.Println(string(finalJSON))
+	fmt.Println(string(jsonBytes))
+}
+
+// setValue sets a value in a nested map based on the provided path
+func setValue(obj map[string]interface{}, path []string, value interface{}) {
+	if len(path) == 0 {
+		return
+	}
+	key := path[0]
+	if len(path) == 1 {
+		obj[key] = value
+		return
+	}
+	nextKey := path[1]
+	if idx, err := strconv.Atoi(nextKey); err == nil {
+		// Handle array index
+		var arr []interface{}
+		if existing, ok := obj[key]; ok {
+			arr = existing.([]interface{})
+		} else {
+			arr = make([]interface{}, idx+1)
+			obj[key] = arr
+		}
+		// Ensure array is large enough
+		if len(arr) <= idx {
+			newArr := make([]interface{}, idx+1)
+			copy(newArr, arr)
+			arr = newArr
+			obj[key] = arr
+		}
+		if len(path) == 2 {
+			arr[idx] = value
+			return
+		}
+		var nextObj map[string]interface{}
+		if arr[idx] != nil {
+			nextObj = arr[idx].(map[string]interface{})
+		} else {
+			nextObj = make(map[string]interface{})
+			arr[idx] = nextObj
+		}
+		setValue(nextObj, path[2:], value)
+	} else {
+		// Handle nested map
+		var nextObj map[string]interface{}
+		if existing, ok := obj[key]; ok {
+			nextObj = existing.(map[string]interface{})
+		} else {
+			nextObj = make(map[string]interface{})
+			obj[key] = nextObj
+		}
+		setValue(nextObj, path[1:], value)
+	}
 }
