@@ -21,7 +21,7 @@ func SetNestedValue(jsonObject map[string]interface{}, path string, value string
 	keys := strings.Split(path, "/")
 
 	// Traverse or create the map/list structure based on keys
-	var current interface{} = jsonObject
+	current := jsonObject
 	for i, key := range keys {
 		// Check if the key represents an index (for a list)
 		index, err := strconv.Atoi(key)
@@ -31,7 +31,8 @@ func SetNestedValue(jsonObject map[string]interface{}, path string, value string
 		if i == len(keys)-1 {
 			if isIndex {
 				// Handle list at the last level
-				currentList := ensureList(current.(map[string]interface{}), keys[i-1], index)
+				parentKey := keys[i-1]
+				currentList := ensureList(current.(map[string]interface{}), parentKey, index)
 				currentList[index] = value
 			} else {
 				current.(map[string]interface{})[key] = value
@@ -39,17 +40,16 @@ func SetNestedValue(jsonObject map[string]interface{}, path string, value string
 			return
 		}
 
-		// Handle intermediate levels
 		if isIndex {
-			// Ensure parent is a list
+			// Handle intermediate list
 			parentKey := keys[i-1]
 			currentList := ensureList(current.(map[string]interface{}), parentKey, index)
 			if currentList[index] == nil {
 				currentList[index] = make(map[string]interface{})
 			}
-			current = currentList[index]
+			current = currentList[index].(map[string]interface{})
 		} else {
-			// Ensure parent is a map
+			// Handle intermediate map
 			if _, exists := current.(map[string]interface{})[key]; !exists {
 				current.(map[string]interface{})[key] = make(map[string]interface{})
 			}
