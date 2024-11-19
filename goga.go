@@ -21,59 +21,64 @@ func SetNestedValue(jsonObject map[string]interface{}, path string, value string
 	keys := strings.Split(path, "/")
 
 	// Traverse or create the map/list structure based on keys
-	current := jsonObject
+	var current interface{} = jsonObject
 	for i, key := range keys {
 		// Check if the key represents an index (for a list)
 		index, err := strconv.Atoi(key)
 		isIndex := err == nil
 
+		// If this is the last key, set the value
 		if i == len(keys)-1 {
-			// If we are at the last key, set the value
 			if isIndex {
-				// Handle list index if it exists
-				currentList := ensureList(current, keys[i-1], index)
+				// Handle list at the last level
+				currentList := ensureList(current.(map[string]interface{}), keys[i-1], index)
 				currentList[index] = value
 			} else {
-				current[key] = value
+				current.(map[string]interface{})[key] = value
 			}
 			return
 		}
 
+		// Handle intermediate levels
 		if isIndex {
-			// Handle nested list
-			prevKey := keys[i-1]
-			currentList := ensureList(current, prevKey, index)
+			// Ensure parent is a list
+			parentKey := keys[i-1]
+			currentList := ensureList(current.(map[string]interface{}), parentKey, index)
 			if currentList[index] == nil {
 				currentList[index] = make(map[string]interface{})
 			}
-			current = currentList[index].(map[string]interface{})
+			current = currentList[index]
 		} else {
-			// Handle nested map
-			if _, exists := current[key]; !exists {
-				current[key] = make(map[string]interface{})
+			// Ensure parent is a map
+			if _, exists := current.(map[string]interface{})[key]; !exists {
+				current.(map[string]interface{})[key] = make(map[string]interface{})
 			}
-			current = current[key].(map[string]interface{})
+			current = current.(map[string]interface{})[key]
 		}
 	}
 }
 
 // ensureList ensures that a key in the parent map is a list and has at least `size` elements.
 func ensureList(parent map[string]interface{}, key string, size int) []interface{} {
-	// Check if the key exists and is a list
+	// Check if the key exists and is already a list
 	if _, exists := parent[key]; !exists {
 		parent[key] = make([]interface{}, size+1)
 	}
-	if list, ok := parent[key].([]interface{}); ok {
-		// Expand the list if necessary
-		if len(list) <= size {
-			newList := make([]interface{}, size+1)
-			copy(newList, list)
-			parent[key] = newList
-		}
-		return parent[key].([]interface{})
+
+	// Convert to list if valid
+	list, ok := parent[key].([]interface{})
+	if !ok {
+		log.Fatalf("Expected a list at key '%s' but found a different type", key)
 	}
-	log.Fatalf("Expected a list at key %s", key)
-	return nil
+
+	// Expand the list if necessary
+	if len(list) <= size {
+		newList := make([]interface{}, size+1)
+		copy(newList, list)
+		parent[key] = newList
+	}
+
+	return parent[key].([]interface{})
 }
 
 func main() {
