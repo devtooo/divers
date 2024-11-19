@@ -21,7 +21,7 @@ func SetNestedValue(jsonObject map[string]interface{}, path string, value string
 	keys := strings.Split(path, "/")
 
 	// Traverse or create the map/list structure based on keys
-	current := jsonObject
+	var current interface{} = jsonObject
 	for i, key := range keys {
 		// Check if the key represents an index (for a list)
 		index, err := strconv.Atoi(key)
@@ -31,29 +31,45 @@ func SetNestedValue(jsonObject map[string]interface{}, path string, value string
 		if i == len(keys)-1 {
 			if isIndex {
 				// Handle list at the last level
+				currentMap, ok := current.(map[string]interface{})
+				if !ok {
+					log.Fatalf("Expected map at final level, found: %T", current)
+				}
 				parentKey := keys[i-1]
-				currentList := ensureList(current.(map[string]interface{}), parentKey, index)
+				currentList := ensureList(currentMap, parentKey, index)
 				currentList[index] = value
 			} else {
-				current.(map[string]interface{})[key] = value
+				currentMap, ok := current.(map[string]interface{})
+				if !ok {
+					log.Fatalf("Expected map at final level, found: %T", current)
+				}
+				currentMap[key] = value
 			}
 			return
 		}
 
 		if isIndex {
 			// Handle intermediate list
+			currentMap, ok := current.(map[string]interface{})
+			if !ok {
+				log.Fatalf("Expected map at intermediate level, found: %T", current)
+			}
 			parentKey := keys[i-1]
-			currentList := ensureList(current.(map[string]interface{}), parentKey, index)
+			currentList := ensureList(currentMap, parentKey, index)
 			if currentList[index] == nil {
 				currentList[index] = make(map[string]interface{})
 			}
-			current = currentList[index].(map[string]interface{})
+			current = currentList[index]
 		} else {
 			// Handle intermediate map
-			if _, exists := current.(map[string]interface{})[key]; !exists {
-				current.(map[string]interface{})[key] = make(map[string]interface{})
+			currentMap, ok := current.(map[string]interface{})
+			if !ok {
+				log.Fatalf("Expected map at intermediate level, found: %T", current)
 			}
-			current = current.(map[string]interface{})[key]
+			if _, exists := currentMap[key]; !exists {
+				currentMap[key] = make(map[string]interface{})
+			}
+			current = currentMap[key]
 		}
 	}
 }
@@ -68,7 +84,7 @@ func ensureList(parent map[string]interface{}, key string, size int) []interface
 	// Convert to list if valid
 	list, ok := parent[key].([]interface{})
 	if !ok {
-		log.Fatalf("Expected a list at key '%s' but found a different type", key)
+		log.Fatalf("Expected a list at key '%s' but found: %T", key, parent[key])
 	}
 
 	// Expand the list if necessary
